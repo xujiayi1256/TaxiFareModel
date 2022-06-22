@@ -1,3 +1,7 @@
+import joblib
+import mlflow
+from memoized_property import memoized_property
+from mlflow.tracking import MlflowClient
 from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split
@@ -8,6 +12,8 @@ from TaxiFareModel.data import get_data, clean_data
 from TaxiFareModel.encoders import DistanceTransformer, TimeFeaturesEncoder
 from TaxiFareModel.utils import compute_rmse
 
+MLFLOW_URI = "https://mlflow.lewagon.ai/"
+
 
 class Trainer():
     def __init__(self, X, y):
@@ -15,6 +21,7 @@ class Trainer():
             X: pandas DataFrame
             y: pandas Series
         """
+        self.EXPERIMENT_NAME = "[CN] [Shanghai] [xujiayi1256] TaxiFareModel v1.0"
         self.pipeline = None
         self.X = X
         self.y = y
@@ -49,7 +56,36 @@ class Trainer():
         """evaluates the pipeline on df_test and return the RMSE"""
         y_pred = self.pipeline.predict(X_test)
         rmse = compute_rmse(y_pred, y_test)
+        self.mlflow_log_param("model", "LinearRegression")
+        self.mlflow_log_metric("rmse", rmse)
         return rmse
+
+    @memoized_property
+    def mlflow_client(self):
+        mlflow.set_tracking_uri(MLFLOW_URI)
+        return MlflowClient()
+
+    @memoized_property
+    def mlflow_experiment_id(self):
+        try:
+            return self.mlflow_client.create_experiment(self.EXPERIMENT_NAME)
+        except BaseException:
+            return self.mlflow_client.get_experiment_by_name(self.EXPERIMENT_NAME).experiment_id
+
+    @memoized_property
+    def mlflow_run(self):
+        return self.mlflow_client.create_run(self.mlflow_experiment_id)
+
+    def mlflow_log_param(self, key, value):
+        self.mlflow_client.log_param(self.mlflow_run.info.run_id, key, value)
+
+    def mlflow_log_metric(self, key, value):
+        self.mlflow_client.log_metric(self.mlflow_run.info.run_id, key, value)
+
+    def save_model(self):
+        """ Save the trained model into a model.joblib file """
+
+        joblib.dump(self.pipeline, "model.joblib")
 
 
 if __name__ == "__main__":
@@ -67,4 +103,8 @@ if __name__ == "__main__":
     train.set_pipeline()
     train.run()
     # evaluate
-    print(train.evaluate(X_test, y_test))
+    print("RMSE:", train.evaluate(X_test, y_test))
+
+    experiment_id = train.mlflow_experiment_id
+    print(f"experiment URL: https://mlflow.lewagon.ai/#/experiments/{experiment_id}")
+    train.save_model()
