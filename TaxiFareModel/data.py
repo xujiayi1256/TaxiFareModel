@@ -1,14 +1,19 @@
 import pandas as pd
 
+from TaxiFareModel.params import *
+
 AWS_BUCKET_PATH = "s3://wagon-public-datasets/taxi-fare-train.csv"
 RAW_DATA_PATH = "raw_data/train.csv"
 
 
-
-def get_data(nrows=10_000):
+def get_data(nrows=1_000, source='google'):
     '''returns a DataFrame with nrows from s3 bucket'''
-    # df = pd.read_csv(AWS_BUCKET_PATH, nrows=nrows)
-    df = pd.read_csv(RAW_DATA_PATH, nrows=nrows)
+    if source == 'google':
+        df = pd.read_csv(f"gs://{BUCKET_NAME}/{BUCKET_TRAIN_DATA_PATH}", nrows=1000)
+    elif source == 'aws':
+        df = pd.read_csv(AWS_BUCKET_PATH, nrows=nrows)
+    else:
+        df = pd.read_csv(RAW_DATA_PATH, nrows=nrows)
     return df
 
 
@@ -24,6 +29,30 @@ def clean_data(df, test=False):
     df = df[df["pickup_longitude"].between(left=-74.3, right=-72.9)]
     df = df[df["dropoff_latitude"].between(left=40, right=42)]
     df = df[df["dropoff_longitude"].between(left=-74, right=-72.9)]
+    return df
+
+
+def df_optimized(df, verbose=True, **kwargs):
+    """
+    Reduces size of dataframe by downcasting numeircal columns
+    :param df: input dataframe
+    :param verbose: print size reduction if set to True
+    :param kwargs:
+    :return: df optimized
+    """
+    in_size = df.memory_usage(index=True).sum()
+    # Optimized size here
+    for type in ["float", "integer"]:
+        l_cols = list(df.select_dtypes(include=type))
+        for col in l_cols:
+            df[col] = pd.to_numeric(df[col], downcast=type)
+            if type == "float":
+                df[col] = pd.to_numeric(df[col], downcast="integer")
+    out_size = df.memory_usage(index=True).sum()
+    ratio = (1 - round(out_size / in_size, 2)) * 100
+    GB = out_size / 1000000000
+    if verbose:
+        print("optimized size by {} % | {} GB".format(ratio, GB))
     return df
 
 
